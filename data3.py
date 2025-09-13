@@ -677,7 +677,11 @@ def main():
                    auc_col2.metric("Precision-Recall AUC", f"{metrics.get('pr_auc', 0):.3f}")
 
             with st.expander("View Detailed Classification Report"):
-                 report = classification_report(y_test, y_pred, target_names=[str(c) for c in le_target.classes_])
+                 # Get unique classes in test set to avoid mismatch
+                 unique_test_classes = np.unique(np.concatenate([y_test, y_pred]))
+                 target_names_filtered = [str(le_target.classes_[i]) for i in unique_test_classes if i < len(le_target.classes_)]
+                 report = classification_report(y_test, y_pred, target_names=target_names_filtered, labels=unique_test_classes)
+                
                  st.text(report)
 
             # 5. Create and Display Evaluation Plots
