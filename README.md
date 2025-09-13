@@ -41,7 +41,7 @@ The app will open in your browser. You can upload CSV files for cleaning, modeli
 
 ## Project Structure
 - `data3.py`: Main Streamlit app with all features
-- `data1.py`, `data.py`: (Optional) Additional scripts or modules
+
 
 ## License
 MIT
