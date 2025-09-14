@@ -36,6 +36,12 @@ from sklearn.calibration import calibration_curve
 import requests
 from bs4 import BeautifulSoup
 import re
+import json
+import logging
+from datetime import datetime
+from dateutil import parser as date_parser
+import re
+from collections import defaultdict
 try:
     import spacy
     nlp = spacy.load('en_core_web_sm')
@@ -171,6 +177,75 @@ def demonstrate_status_cleaning():
     st.write(cleaned_status.value_counts(dropna=False))
     
     st.success("✅ Case normalization reduces 8 variants to 4 clean categories!")
+
+def demonstrate_comprehensive_cleaning():
+    """Demonstrate comprehensive data cleaning with audit logging"""
+    st.subheader("🔧 Comprehensive Data Cleaning Demo")
+    st.markdown("""
+    **Sample messy dataset with common issues:**
+    - Mixed case categorical values
+    - Inconsistent date formats
+    - Invalid email addresses
+    - Corrupted numeric values
+    - Missing values
+    """)
+    
+    # Create a comprehensive sample dataset
+    sample_data = pd.DataFrame({
+        'Customer ID': ['C001', 'C002', 'C003', 'C004', 'C005'] * 20,
+        'Name': ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson'] * 20,
+        'Email': ['john@email.com', 'jane@email.com', 'invalid-email', 'alice@company.org', 'charlie@test.net'] * 20,
+        'Phone': ['+1-555-123-4567', '(555) 987-6543', '555.111.2222', '555-333-4444', 'invalid-phone'] * 20,
+        'Age': [25, 30, 'invalid', 35, 28] * 20,
+        'Status': ['Delivered', 'DELIVERED', 'Pending', 'PENDING', 'Cancelled'] * 20,
+        'Order Date': ['2024-01-15', '15/01/2024', 'Jan 15, 2024', '2024-01-15', '15-01-2024'] * 20,
+        'Price': ['$25.99', '30.50', 'invalid', '45.00', 'N/A'] * 20,
+        'Rating': ['Excellent', 'Good', 'Average', 'Poor', 'N/A'] * 20
+    })
+    
+    st.write("**Original messy data (first 10 rows):**")
+    st.dataframe(sample_data.head(10), use_container_width=True)
+    
+    # Apply comprehensive cleaning
+    cleaner = JAXDataCleaner()
+    cleaner.set_parameters(
+        outlier_threshold=3.0,
+        imputation_method="mean",
+        categorical_missing_strategy="unknown"
+    )
+    
+    with st.spinner("Applying comprehensive cleaning pipeline..."):
+        cleaned_data, stats = cleaner.preprocess_data(sample_data, outlier_strategy="cap")
+    
+    st.write("**After comprehensive cleaning (first 10 rows):**")
+    st.dataframe(cleaned_data.head(10), use_container_width=True)
+    
+    # Display cleaning statistics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Original Shape", f"{stats.get('original_shape', (0,0))[0]} × {stats.get('original_shape', (0,0))[1]}")
+    with col2:
+        st.metric("Cleaned Shape", f"{stats.get('processed_shape', (0,0))[0]} × {stats.get('processed_shape', (0,0))[1]}")
+    with col3:
+        st.metric("Missing Values Fixed", stats.get('missing_values_original', 0) - stats.get('missing_values_processed', 0))
+    with col4:
+        st.metric("Domain Detected", stats.get('domain', 'Unknown'))
+    
+    # Display cleaning log
+    cleaning_log = cleaner.get_cleaning_log()
+    
+    with st.expander("View Detailed Cleaning Log"):
+        st.subheader("🔄 Transformation Steps")
+        for i, step in enumerate(cleaning_log.get('steps', []), 1):
+            with st.expander(f"Step {i}: {step.get('operation', 'Unknown')} - {step.get('column', 'Unknown')}"):
+                st.json(step)
+        
+        if cleaning_log.get('warnings'):
+            st.subheader("⚠️ Warnings")
+            for warning in cleaning_log['warnings']:
+                st.warning(warning)
+    
+    st.success("✅ Comprehensive cleaning complete with full audit trail!")
 
 def detect_target_type(y_series: pd.Series, threshold: float = 0.05) -> str:
     """Automatically detect if target is continuous (regression) or discrete (classification)"""
@@ -312,7 +387,7 @@ def get_model_configs():
 
 # ======================== ENHANCED DATA CLEANER ========================
 class JAXDataCleaner:
-    """Enhanced JAX-powered data cleaning pipeline"""
+    """Enhanced JAX-powered data cleaning pipeline with comprehensive audit logging"""
     
     def __init__(self):
         self.scaler = StandardScaler()
@@ -321,12 +396,77 @@ class JAXDataCleaner:
         self.outlier_threshold = 3.0
         self.imputation_method = "mean"
         self.categorical_missing_strategy = "unknown"
+        
+        # Comprehensive audit logging
+        self.cleaning_log = {
+            'timestamp': datetime.now().isoformat(),
+            'steps': [],
+            'transformations': {},
+            'statistics': {},
+            'warnings': [],
+            'errors': []
+        }
+        
+        # Domain-specific cleaning rules
+        self.domain_rules = {
+            'healthcare': {
+                'symptoms': ['fever', 'cough', 'headache', 'nausea', 'fatigue'],
+                'diagnoses': ['hypertension', 'diabetes', 'asthma', 'pneumonia'],
+                'medications': ['aspirin', 'ibuprofen', 'acetaminophen']
+            },
+            'finance': {
+                'currencies': ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud'],
+                'account_types': ['checking', 'savings', 'credit', 'investment'],
+                'transaction_types': ['deposit', 'withdrawal', 'transfer', 'payment']
+            },
+            'retail': {
+                'categories': ['electronics', 'clothing', 'books', 'home', 'sports'],
+                'statuses': ['delivered', 'pending', 'cancelled', 'returned', 'shipped']
+            }
+        }
+        
         # Special cleaners for known messy columns
         self.special_cleaners = {
             'Price': self._clean_price_column,
             'Rating': self._clean_rating_column,
             'Status': self._clean_status_column,
-            'STATUS': self._clean_status_column
+            'STATUS': self._clean_status_column,
+            'Date': self._clean_date_column,
+            'DATE': self._clean_date_column,
+            'Age': self._clean_age_column,
+            'AGE': self._clean_age_column,
+            'Email': self._clean_email_column,
+            'EMAIL': self._clean_email_column,
+            'Phone': self._clean_phone_column,
+            'PHONE': self._clean_phone_column,
+            'Score': self._clean_score_column,
+            'SCORE': self._clean_score_column,
+            'AdmissionDate': self._clean_date_column,
+            'ADMISSIONDATE': self._clean_date_column,
+            'Admission_Date': self._clean_date_column,
+            'ADMISSION_DATE': self._clean_date_column
+        }
+        
+        # Synonym mappings for categorical standardization
+        self.synonym_mappings = {
+            'status': {
+                'delivered': ['delivered', 'completed', 'shipped', 'fulfilled'],
+                'pending': ['pending', 'processing', 'in_progress', 'awaiting'],
+                'cancelled': ['cancelled', 'canceled', 'failed', 'aborted'],
+                'returned': ['returned', 'refunded', 'rejected']
+            },
+            'gender': {
+                'male': ['male', 'm', 'man', 'masculine'],
+                'female': ['female', 'f', 'woman', 'feminine'],
+                'other': ['other', 'non-binary', 'nb', 'prefer_not_to_say']
+            },
+            'rating': {
+                'excellent': ['excellent', 'outstanding', 'amazing', 'perfect', '5'],
+                'good': ['good', 'great', 'satisfactory', '4'],
+                'average': ['average', 'ok', 'okay', 'fair', '3'],
+                'poor': ['poor', 'bad', 'terrible', 'awful', '2'],
+                'very_poor': ['very poor', 'worst', 'horrible', '1']
+            }
         }
 
     def _clean_price_column(self, series):
@@ -361,6 +501,9 @@ class JAXDataCleaner:
 
     def _clean_status_column(self, series):
         """Clean STATUS column by normalizing case and handling missing values"""
+        original_unique = series.nunique()
+        original_missing = series.isnull().sum()
+        
         def clean_status(val):
             try:
                 if pd.isnull(val): 
@@ -368,7 +511,12 @@ class JAXDataCleaner:
                 
                 val_str = str(val).strip().lower()
                 
-                # Normalize common status variations
+                # Use synonym mappings for better standardization
+                for standard_value, synonyms in self.synonym_mappings.get('status', {}).items():
+                    if val_str in synonyms:
+                        return standard_value
+                
+                # Fallback to direct mapping
                 status_mapping = {
                     'delivered': 'delivered',
                     'pending': 'pending', 
@@ -386,7 +534,411 @@ class JAXDataCleaner:
             except Exception as e:
                 print(f"Error cleaning status: {e}")
                 return np.nan
-        return series.apply(clean_status)
+        
+        cleaned_series = series.apply(clean_status)
+        cleaned_unique = cleaned_series.nunique()
+        
+        # Log the transformation
+        self._log_transformation(
+            column='STATUS',
+            operation='status_normalization',
+            original_unique=original_unique,
+            cleaned_unique=cleaned_unique,
+            missing_count=original_missing,
+            details=f"Normalized case and merged synonyms. Reduced from {original_unique} to {cleaned_unique} unique values."
+        )
+        
+        return cleaned_series
+
+    def _clean_date_column(self, series):
+        """Clean DATE column with comprehensive date parsing - NO DROPPING"""
+        original_missing = series.isnull().sum()
+        parsing_errors = 0
+        successful_parses = 0
+        
+        def clean_date(val):
+            nonlocal parsing_errors, successful_parses
+            try:
+                if pd.isnull(val):
+                    return np.nan
+                
+                val_str = str(val).strip()
+                
+                # Handle common date formats with more comprehensive patterns
+                date_formats = [
+                    '%Y-%m-%d', '%d-%m-%Y', '%m/%d/%Y', '%d/%m/%Y',
+                    '%Y/%m/%d', '%d.%m.%Y', '%m.%d.%Y', '%Y.%m.%d',
+                    '%d %m %Y', '%m %d %Y', '%Y %m %d',
+                    '%B %d, %Y', '%d %B %Y', '%b %d, %Y', '%d %b %Y',
+                    '%Y-%m-%d %H:%M:%S', '%d-%m-%Y %H:%M:%S',
+                    '%m/%d/%Y %H:%M:%S', '%d/%m/%Y %H:%M:%S',
+                    '%Y-%m-%d %H:%M', '%d-%m-%Y %H:%M',
+                    '%Y%m%d', '%d%m%Y', '%m%d%Y'  # Compact formats
+                ]
+                
+                # Try pandas date parsing first (most flexible)
+                try:
+                    parsed_date = pd.to_datetime(val_str, infer_datetime_format=True, errors='raise')
+                    successful_parses += 1
+                    return parsed_date.strftime('%Y-%m-%d')
+                except:
+                    pass
+                
+                # Try dateutil parser for very flexible parsing
+                try:
+                    parsed_date = date_parser.parse(val_str, fuzzy=True)
+                    successful_parses += 1
+                    return parsed_date.strftime('%Y-%m-%d')
+                except:
+                    pass
+                
+                # Try manual format matching with more aggressive parsing
+                for fmt in date_formats:
+                    try:
+                        parsed_date = datetime.strptime(val_str, fmt)
+                        successful_parses += 1
+                        return parsed_date.strftime('%Y-%m-%d')
+                    except:
+                        continue
+                
+                # Last resort: try to extract year-month-day patterns
+                import re
+                # Look for 4-digit year patterns
+                year_match = re.search(r'(\d{4})', val_str)
+                if year_match:
+                    year = year_match.group(1)
+                    # Look for month and day
+                    month_day_match = re.search(r'(\d{1,2})[\/\-\.\s]+(\d{1,2})', val_str)
+                    if month_day_match:
+                        month, day = month_day_match.groups()
+                        try:
+                            # Try different year-month-day combinations
+                            for fmt in ['%Y-%m-%d', '%Y-%d-%m']:
+                                try:
+                                    parsed_date = datetime.strptime(f"{year}-{month.zfill(2)}-{day.zfill(2)}", fmt)
+                                    successful_parses += 1
+                                    return parsed_date.strftime('%Y-%m-%d')
+                                except:
+                                    continue
+                        except:
+                            pass
+                
+                # If all parsing fails, try to salvage partial date info
+                # Extract any recognizable date components
+                date_components = re.findall(r'\d{1,4}', val_str)
+                if len(date_components) >= 3:
+                    # Try to construct a reasonable date
+                    try:
+                        # Assume YYYY-MM-DD format if we have 3+ numbers
+                        year = date_components[0] if len(date_components[0]) == 4 else date_components[-1]
+                        month = date_components[1] if len(date_components[0]) == 4 else date_components[0]
+                        day = date_components[2] if len(date_components[0]) == 4 else date_components[1]
+                        
+                        # Validate and construct date
+                        if len(year) == 4 and 1 <= int(month) <= 12 and 1 <= int(day) <= 31:
+                            parsed_date = datetime(int(year), int(month), int(day))
+                            successful_parses += 1
+                            return parsed_date.strftime('%Y-%m-%d')
+                    except:
+                        pass
+                
+                # If we still can't parse, use forward fill or impute with median date
+                parsing_errors += 1
+                return None  # Will be handled by missing value strategy
+                
+            except Exception as e:
+                parsing_errors += 1
+                return None
+        
+        cleaned_series = series.apply(clean_date)
+        
+        # Apply missing value strategy for unparseable dates
+        if parsing_errors > 0:
+            # Strategy 1: Forward fill from last valid date
+            cleaned_series = cleaned_series.fillna(method='ffill')
+            
+            # Strategy 2: If still NaN, use median date from successfully parsed dates
+            valid_dates = pd.to_datetime(cleaned_series.dropna(), errors='coerce')
+            if not valid_dates.empty:
+                median_date = valid_dates.median()
+                cleaned_series = cleaned_series.fillna(median_date.strftime('%Y-%m-%d'))
+            else:
+                # Last resort: use current date
+                current_date = datetime.now().strftime('%Y-%m-%d')
+                cleaned_series = cleaned_series.fillna(current_date)
+        
+        # Log the transformation
+        self._log_transformation(
+            column='DATE',
+            operation='date_standardization',
+            original_missing=original_missing,
+            parsing_errors=parsing_errors,
+            successful_parses=successful_parses,
+            final_missing=cleaned_series.isnull().sum(),
+            details=f"Standardized dates to YYYY-MM-DD format. {successful_parses} successful, {parsing_errors} required imputation."
+        )
+        
+        return cleaned_series
+
+    def _clean_age_column(self, series):
+        """Clean AGE column with validation and outlier detection"""
+        original_missing = series.isnull().sum()
+        invalid_ages = 0
+        
+        def clean_age(val):
+            nonlocal invalid_ages
+            try:
+                if pd.isnull(val):
+                    return np.nan
+                
+                # Convert to numeric
+                age = pd.to_numeric(val, errors='coerce')
+                
+                if pd.isnull(age):
+                    invalid_ages += 1
+                    return np.nan
+                
+                # Validate age range (0-150)
+                if age < 0 or age > 150:
+                    invalid_ages += 1
+                    return np.nan
+                
+                return int(age)
+                
+            except Exception as e:
+                invalid_ages += 1
+                return np.nan
+        
+        cleaned_series = series.apply(clean_age)
+        
+        # Log the transformation
+        self._log_transformation(
+            column='AGE',
+            operation='age_validation',
+            original_missing=original_missing,
+            invalid_values=invalid_ages,
+            details=f"Validated age range (0-150). {invalid_ages} invalid values found."
+        )
+        
+        return cleaned_series
+
+    def _clean_email_column(self, series):
+        """Clean EMAIL column with validation"""
+        original_missing = series.isnull().sum()
+        invalid_emails = 0
+        
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        
+        def clean_email(val):
+            nonlocal invalid_emails
+            try:
+                if pd.isnull(val):
+                    return np.nan
+                
+                val_str = str(val).strip().lower()
+                
+                if email_pattern.match(val_str):
+                    return val_str
+                else:
+                    invalid_emails += 1
+                    return np.nan
+                    
+            except Exception as e:
+                invalid_emails += 1
+                return np.nan
+        
+        cleaned_series = series.apply(clean_email)
+        
+        # Log the transformation
+        self._log_transformation(
+            column='EMAIL',
+            operation='email_validation',
+            original_missing=original_missing,
+            invalid_values=invalid_emails,
+            details=f"Validated email format. {invalid_emails} invalid emails found."
+        )
+        
+        return cleaned_series
+
+    def _clean_phone_column(self, series):
+        """Clean PHONE column with standardization"""
+        original_missing = series.isnull().sum()
+        invalid_phones = 0
+        
+        def clean_phone(val):
+            nonlocal invalid_phones
+            try:
+                if pd.isnull(val):
+                    return np.nan
+                
+                val_str = str(val).strip()
+                
+                # Remove all non-digit characters
+                digits_only = re.sub(r'\D', '', val_str)
+                
+                # Validate phone number length (7-15 digits)
+                if len(digits_only) < 7 or len(digits_only) > 15:
+                    invalid_phones += 1
+                    return np.nan
+                
+                # Format as international format
+                if len(digits_only) == 10:
+                    return f"+1{digits_only}"
+                elif len(digits_only) == 11 and digits_only.startswith('1'):
+                    return f"+{digits_only}"
+                else:
+                    return f"+{digits_only}"
+                    
+            except Exception as e:
+                invalid_phones += 1
+                return np.nan
+        
+        cleaned_series = series.apply(clean_phone)
+        
+        # Log the transformation
+        self._log_transformation(
+            column='PHONE',
+            operation='phone_standardization',
+            original_missing=original_missing,
+            invalid_values=invalid_phones,
+            details=f"Standardized phone format. {invalid_phones} invalid phones found."
+        )
+        
+        return cleaned_series
+
+    def _clean_score_column(self, series):
+        """Clean SCORE column with validation and standardization"""
+        original_missing = series.isnull().sum()
+        invalid_scores = 0
+        
+        def clean_score(val):
+            nonlocal invalid_scores
+            try:
+                if pd.isnull(val):
+                    return np.nan
+                
+                # Convert to string and clean
+                val_str = str(val).strip().lower()
+                
+                # Handle percentage scores
+                if '%' in val_str:
+                    val_str = val_str.replace('%', '')
+                    try:
+                        score = float(val_str)
+                        if 0 <= score <= 100:
+                            return score
+                        else:
+                            invalid_scores += 1
+                            return np.nan
+                    except:
+                        invalid_scores += 1
+                        return np.nan
+                
+                # Handle fraction scores (e.g., "85/100")
+                if '/' in val_str:
+                    try:
+                        parts = val_str.split('/')
+                        if len(parts) == 2:
+                            numerator = float(parts[0])
+                            denominator = float(parts[1])
+                            if denominator > 0:
+                                score = (numerator / denominator) * 100
+                                return score
+                    except:
+                        pass
+                
+                # Handle letter grades
+                grade_mapping = {
+                    'a+': 98, 'a': 95, 'a-': 92,
+                    'b+': 88, 'b': 85, 'b-': 82,
+                    'c+': 78, 'c': 75, 'c-': 72,
+                    'd+': 68, 'd': 65, 'd-': 62,
+                    'f': 0
+                }
+                if val_str in grade_mapping:
+                    return grade_mapping[val_str]
+                
+                # Try direct numeric conversion
+                try:
+                    score = float(val_str)
+                    # Validate score range (0-100 for most scoring systems)
+                    if 0 <= score <= 100:
+                        return score
+                    elif 0 <= score <= 1:  # Decimal scores
+                        return score * 100
+                    elif 0 <= score <= 4:  # GPA scale
+                        return (score / 4) * 100
+                    else:
+                        invalid_scores += 1
+                        return np.nan
+                except:
+                    invalid_scores += 1
+                    return np.nan
+                    
+            except Exception as e:
+                invalid_scores += 1
+                return np.nan
+        
+        cleaned_series = series.apply(clean_score)
+        
+        # Apply missing value strategy for invalid scores
+        if invalid_scores > 0 or cleaned_series.isnull().any():
+            # Use median of valid scores
+            valid_scores = cleaned_series.dropna()
+            if not valid_scores.empty:
+                median_score = valid_scores.median()
+                cleaned_series = cleaned_series.fillna(median_score)
+            else:
+                # Default to 75 (average score)
+                cleaned_series = cleaned_series.fillna(75.0)
+        
+        # Log the transformation
+        self._log_transformation(
+            column='SCORE',
+            operation='score_standardization',
+            original_missing=original_missing,
+            invalid_values=invalid_scores,
+            final_missing=cleaned_series.isnull().sum(),
+            details=f"Standardized scores to 0-100 scale. {invalid_scores} invalid values found and imputed."
+        )
+        
+        return cleaned_series
+
+    def _log_transformation(self, column, operation, **kwargs):
+        """Log a transformation step with detailed information"""
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'column': column,
+            'operation': operation,
+            **kwargs
+        }
+        self.cleaning_log['steps'].append(log_entry)
+
+    def _detect_domain(self, df):
+        """Detect the domain of the dataset based on column names and values"""
+        column_names = [col.lower() for col in df.columns]
+        
+        domain_scores = defaultdict(int)
+        
+        # Healthcare indicators
+        healthcare_keywords = ['patient', 'diagnosis', 'symptom', 'medication', 'treatment', 'hospital', 'doctor', 'age', 'gender']
+        for keyword in healthcare_keywords:
+            if any(keyword in col for col in column_names):
+                domain_scores['healthcare'] += 1
+        
+        # Finance indicators
+        finance_keywords = ['account', 'balance', 'transaction', 'amount', 'currency', 'payment', 'credit', 'debit']
+        for keyword in finance_keywords:
+            if any(keyword in col for col in column_names):
+                domain_scores['finance'] += 1
+        
+        # Retail indicators
+        retail_keywords = ['product', 'price', 'category', 'order', 'customer', 'rating', 'review', 'inventory']
+        for keyword in retail_keywords:
+            if any(keyword in col for col in column_names):
+                domain_scores['retail'] += 1
+        
+        return max(domain_scores.items(), key=lambda x: x[1])[0] if domain_scores else 'general'
 
     def set_parameters(self, outlier_threshold=3.0, imputation_method="mean", categorical_missing_strategy="unknown"):
         """Set cleaning parameters"""
@@ -443,43 +995,184 @@ class JAXDataCleaner:
     
     def preprocess_data(self, df: pd.DataFrame,
                        outlier_strategy: str = "cap") -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Complete preprocessing pipeline with outlier handling and messy string cleaning"""
+        """Complete preprocessing pipeline with comprehensive audit logging and schema validation"""
         try:
+            # Initialize cleaning log
+            self.cleaning_log = {
+                'timestamp': datetime.now().isoformat(),
+                'steps': [],
+                'transformations': {},
+                'statistics': {},
+                'warnings': [],
+                'errors': []
+            }
+            
             processed_df = df.copy()
             stats = {}
+            
+            # Step 0: Domain detection and schema validation
+            detected_domain = self._detect_domain(df)
+            self._log_transformation(
+                column='DATASET',
+                operation='domain_detection',
+                detected_domain=detected_domain,
+                details=f"Detected dataset domain: {detected_domain}"
+            )
+            
+            # Schema validation
+            schema_issues = self._validate_schema(df)
+            if schema_issues:
+                self.cleaning_log['warnings'].extend(schema_issues)
+                self._log_transformation(
+                    column='DATASET',
+                    operation='schema_validation',
+                    issues_found=len(schema_issues),
+                    details=f"Found {len(schema_issues)} schema issues"
+                )
 
-            # Step 1: Special cleaning for known messy columns (Price, Rating, etc.)
+            # Step 1: Header normalization
+            original_columns = list(df.columns)
+            processed_df.columns = [col.strip().lower().replace(' ', '_') for col in df.columns]
+            if original_columns != list(processed_df.columns):
+                self._log_transformation(
+                    column='HEADERS',
+                    operation='header_normalization',
+                    original_columns=original_columns,
+                    normalized_columns=list(processed_df.columns),
+                    details="Normalized column headers to lowercase snake_case"
+                )
+
+            # Step 2: Special cleaning for known messy columns
             for col_name, cleaner_func in self.special_cleaners.items():
                 if col_name in processed_df.columns:
-                    # Debug: Show before and after for STATUS column
-                    if col_name.upper() == 'STATUS':
-                        print(f"DEBUG: Cleaning {col_name} column")
-                        print(f"Before: {processed_df[col_name].value_counts(dropna=False).head()}")
+                    original_stats = {
+                        'unique_count': processed_df[col_name].nunique(),
+                        'missing_count': processed_df[col_name].isnull().sum(),
+                        'dtype': str(processed_df[col_name].dtype)
+                    }
                     
                     processed_df[col_name] = cleaner_func(processed_df[col_name])
                     
-                    if col_name.upper() == 'STATUS':
-                        print(f"After: {processed_df[col_name].value_counts(dropna=False).head()}")
+                    new_stats = {
+                        'unique_count': processed_df[col_name].nunique(),
+                        'missing_count': processed_df[col_name].isnull().sum(),
+                        'dtype': str(processed_df[col_name].dtype)
+                    }
+                    
+                    self._log_transformation(
+                        column=col_name,
+                        operation='special_cleaning',
+                        original_stats=original_stats,
+                        new_stats=new_stats,
+                        details=f"Applied {cleaner_func.__name__} to {col_name}"
+                    )
 
-            # Step 2: Separate numeric and categorical columns
-            numeric_cols = processed_df.select_dtypes(include=[np.number]).columns
+            # Step 3: Categorical value standardization
             categorical_cols = processed_df.select_dtypes(include=['object', 'category']).columns
-
-            # Step 3: Handle categorical data
             for col in categorical_cols:
-                # Handle missing values in categorical columns
+                if col not in self.special_cleaners:  # Skip already cleaned columns
+                    original_unique = processed_df[col].nunique()
+                    original_missing = processed_df[col].isnull().sum()
+                    
+                    # Apply synonym mapping if available
+                    col_lower = col.lower()
+                    for category_type, mappings in self.synonym_mappings.items():
+                        if category_type in col_lower:
+                            processed_df[col] = self._apply_synonym_mapping(processed_df[col], mappings)
+                            break
+                    
+                    # Case normalization
+                    processed_df[col] = processed_df[col].astype(str).str.strip().str.lower()
+                    
+                    new_unique = processed_df[col].nunique()
+                    
+                    self._log_transformation(
+                        column=col,
+                        operation='categorical_standardization',
+                        original_unique=original_unique,
+                        new_unique=new_unique,
+                        missing_count=original_missing,
+                        details=f"Standardized categorical values. Reduced from {original_unique} to {new_unique} unique values."
+                    )
+
+            # Step 4: Handle missing values in categorical columns
+            for col in categorical_cols:
                 if processed_df[col].isnull().any():
+                    missing_count = processed_df[col].isnull().sum()
                     if self.categorical_missing_strategy == "unknown":
                         processed_df[col] = processed_df[col].fillna("unknown")
-                    elif self.categorical_missing_strategy == "drop":
-                        # For now, keep the data but mark for user decision later
-                        pass
-                
+                        self._log_transformation(
+                            column=col,
+                            operation='missing_value_imputation',
+                            missing_count=missing_count,
+                            strategy='unknown',
+                            details=f"Filled {missing_count} missing values with 'unknown'"
+                        )
+                    elif self.categorical_missing_strategy == "mode":
+                        mode_value = processed_df[col].mode().iloc[0] if not processed_df[col].mode().empty else "unknown"
+                        processed_df[col] = processed_df[col].fillna(mode_value)
+                        self._log_transformation(
+                            column=col,
+                            operation='missing_value_imputation',
+                            missing_count=missing_count,
+                            strategy='mode',
+                            mode_value=mode_value,
+                            details=f"Filled {missing_count} missing values with mode: {mode_value}"
+                        )
+                    elif self.categorical_missing_strategy == "forward_fill":
+                        processed_df[col] = processed_df[col].fillna(method='ffill').fillna(method='bfill')
+                        self._log_transformation(
+                            column=col,
+                            operation='missing_value_imputation',
+                            missing_count=missing_count,
+                            strategy='forward_fill',
+                            details=f"Filled {missing_count} missing values using forward/backward fill"
+                        )
+                    else:  # Default to unknown
+                        processed_df[col] = processed_df[col].fillna("unknown")
+                        self._log_transformation(
+                            column=col,
+                            operation='missing_value_imputation',
+                            missing_count=missing_count,
+                            strategy='unknown_default',
+                            details=f"Filled {missing_count} missing values with 'unknown' (default strategy)"
+                        )
+
+            # Step 5: Encode categorical data
+            for col in categorical_cols:
                 if col not in self.label_encoders:
                     self.label_encoders[col] = LabelEncoder()
+                
+                original_values = processed_df[col].unique()
                 processed_df[col] = self.label_encoders[col].fit_transform(processed_df[col].astype(str))
+                
+                # Store encoding mapping with enhanced interpretability
+                encoding_mapping = dict(enumerate(self.label_encoders[col].classes_))
+                reverse_mapping = {v: k for k, v in encoding_mapping.items()}
+                
+                self.cleaning_log['transformations'][col] = {
+                    'type': 'categorical_encoding',
+                    'mapping': encoding_mapping,
+                    'reverse_mapping': reverse_mapping,
+                    'original_unique': len(original_values),
+                    'encoded_unique': len(encoding_mapping),
+                    'interpretation_guide': {
+                        'format': 'integer_code: original_value',
+                        'example': f"0: '{list(encoding_mapping.values())[0] if encoding_mapping else 'N/A'}'",
+                        'usage': 'Use reverse_mapping to convert back to original values'
+                    }
+                }
+                
+                self._log_transformation(
+                    column=col,
+                    operation='categorical_encoding',
+                    original_unique=len(original_values),
+                    encoded_unique=len(encoding_mapping),
+                    details=f"Encoded categorical values to integers"
+                )
 
-            # Step 4: Process numeric columns
+            # Step 6: Process numeric columns
+            numeric_cols = processed_df.select_dtypes(include=[np.number]).columns
             if len(numeric_cols) > 0:
                 numeric_data = jnp.array(processed_df[numeric_cols].values, dtype=jnp.float32)
                 
@@ -494,21 +1187,160 @@ class JAXDataCleaner:
                 stats['outlier_count'] = int(jnp.sum(outlier_mask))
                 stats['outlier_percentage'] = float(jnp.mean(outlier_mask) * 100)
                 
+                # Log outlier handling
+                self._log_transformation(
+                    column='NUMERIC_COLUMNS',
+                    operation='outlier_handling',
+                    outlier_count=stats['outlier_count'],
+                    outlier_percentage=stats['outlier_percentage'],
+                    strategy=outlier_strategy,
+                    details=f"Handled {stats['outlier_count']} outliers using {outlier_strategy} strategy"
+                )
+                
                 # Update dataframe
                 processed_df[numeric_cols] = numeric_data_filled
             
-            # Store feature statistics
+            # Step 7: Final statistics and validation
             stats['original_shape'] = df.shape
             stats['processed_shape'] = processed_df.shape
             stats['missing_values_original'] = df.isnull().sum().sum()
             stats['missing_values_processed'] = processed_df.isnull().sum().sum()
             stats['dtypes'] = str(df.dtypes.value_counts().to_dict())
+            stats['domain'] = detected_domain
+            
+            # Store in cleaning log
+            self.cleaning_log['statistics'] = stats
+            self.cleaning_log['transformations']['dataset'] = {
+                'original_shape': df.shape,
+                'processed_shape': processed_df.shape,
+                'columns_processed': len(processed_df.columns),
+                'domain': detected_domain
+            }
             
             self.feature_stats = stats
             return processed_df, stats
         except Exception as e:
-            print(f"Error in preprocess_data: {e}")
+            error_msg = f"Error in preprocess_data: {e}"
+            self.cleaning_log['errors'].append(error_msg)
+            print(error_msg)
             return df, {}
+
+    def _validate_schema(self, df):
+        """Validate dataset schema and return issues"""
+        issues = []
+        
+        # Check for completely empty columns
+        empty_cols = df.columns[df.isnull().all()].tolist()
+        if empty_cols:
+            issues.append(f"Empty columns found: {empty_cols}")
+        
+        # Check for columns with only one unique value
+        single_value_cols = []
+        for col in df.columns:
+            if df[col].nunique() <= 1:
+                single_value_cols.append(col)
+        if single_value_cols:
+            issues.append(f"Columns with single value: {single_value_cols}")
+        
+        # Check for potential ID columns that should be strings
+        potential_id_cols = []
+        for col in df.columns:
+            if any(keyword in col.lower() for keyword in ['id', 'key', 'code', 'number']):
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    potential_id_cols.append(col)
+        if potential_id_cols:
+            issues.append(f"Potential ID columns with numeric type: {potential_id_cols}")
+        
+        return issues
+
+    def _apply_synonym_mapping(self, series, mappings):
+        """Apply synonym mapping to a series"""
+        def map_value(val):
+            if pd.isnull(val):
+                return val
+            val_str = str(val).strip().lower()
+            for standard_value, synonyms in mappings.items():
+                if val_str in synonyms:
+                    return standard_value
+            return val_str
+        
+        return series.apply(map_value)
+
+    def get_cleaning_log(self):
+        """Return the comprehensive cleaning log"""
+        return self.cleaning_log
+
+    def export_cleaning_log(self, format='json'):
+        """Export cleaning log in specified format"""
+        if format == 'json':
+            return json.dumps(self.cleaning_log, indent=2, default=str)
+        elif format == 'summary':
+            summary = {
+                'timestamp': self.cleaning_log['timestamp'],
+                'total_steps': len(self.cleaning_log['steps']),
+                'warnings': len(self.cleaning_log['warnings']),
+                'errors': len(self.cleaning_log['errors']),
+                'transformations': len(self.cleaning_log['transformations']),
+                'statistics': self.cleaning_log['statistics']
+            }
+            return json.dumps(summary, indent=2, default=str)
+        else:
+            return str(self.cleaning_log)
+
+    def export_interpretable_mappings(self, format='markdown'):
+        """Export categorical mappings in human-readable format"""
+        mappings = {}
+        for col, info in self.cleaning_log.get('transformations', {}).items():
+            if info.get('type') == 'categorical_encoding':
+                mappings[col] = {
+                    'encoding': info['mapping'],
+                    'reverse': info['reverse_mapping'],
+                    'counts': info.get('original_unique', 0)
+                }
+        
+        if format == 'markdown':
+            md_content = "# Categorical Encoding Mappings\n\n"
+            md_content += "This file contains the mapping between original categorical values and their encoded integer representations.\n\n"
+            
+            for col, mapping_info in mappings.items():
+                md_content += f"## Column: {col}\n\n"
+                md_content += f"**Total unique values:** {mapping_info['counts']}\n\n"
+                md_content += "### Encoding (Integer → Original Value)\n\n"
+                md_content += "| Code | Original Value |\n"
+                md_content += "|------|----------------|\n"
+                
+                for code, value in mapping_info['encoding'].items():
+                    md_content += f"| {code} | {value} |\n"
+                
+                md_content += "\n### Reverse Mapping (Original Value → Integer)\n\n"
+                md_content += "| Original Value | Code |\n"
+                md_content += "|----------------|------|\n"
+                
+                for value, code in mapping_info['reverse'].items():
+                    md_content += f"| {value} | {code} |\n"
+                
+                md_content += "\n---\n\n"
+            
+            return md_content
+        
+        elif format == 'csv':
+            csv_rows = []
+            for col, mapping_info in mappings.items():
+                for code, value in mapping_info['encoding'].items():
+                    csv_rows.append({
+                        'column': col,
+                        'code': code,
+                        'original_value': value
+                    })
+            
+            if csv_rows:
+                df = pd.DataFrame(csv_rows)
+                return df.to_csv(index=False)
+            else:
+                return "column,code,original_value\n"
+        
+        else:  # json
+            return json.dumps(mappings, indent=2, default=str)
     
     def preprocess_dual_output(self, df: pd.DataFrame, 
                               outlier_strategy: str = "cap") -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
@@ -1146,8 +1978,8 @@ def main():
     outlier_strategy = st.sidebar.selectbox("Outlier Handling Strategy", ["cap", "remove", "ignore"])
     categorical_missing_strategy = st.sidebar.selectbox(
         "Categorical Missing Values", 
-        ["unknown", "drop"], 
-        help="'unknown': Fill with 'unknown' category, 'drop': Keep NaN for manual handling"
+        ["unknown", "mode", "forward_fill"], 
+        help="'unknown': Fill with 'unknown' category, 'mode': Fill with most frequent value, 'forward_fill': Use forward/backward fill"
     )
 
     # File upload
@@ -1219,29 +2051,51 @@ def main():
                 for i, rec in enumerate(quality_analysis['recommendations'], 1):
                     st.write(f"{i}. {rec}")
                 
+                # Show cleaning demos
+                col_demo1, col_demo2, col_demo3 = st.columns(3)
+                
+                with col_demo1:
+                    if st.button("🎯 Show STATUS Column Cleaning Demo"):
+                        demonstrate_status_cleaning()
+                
+                with col_demo2:
+                    if st.button("🔧 Show Comprehensive Cleaning Demo"):
+                        demonstrate_comprehensive_cleaning()
+                
+                with col_demo3:
+                    if st.button("📋 View Cleaning Capabilities"):
+                        st.info("""
+                        **Enhanced Cleaning Features:**
+                        - ✅ Header normalization (snake_case)
+                        - ✅ Date parsing (multiple formats → YYYY-MM-DD)
+                        - ✅ Email validation & standardization
+                        - ✅ Phone number formatting
+                        - ✅ Age validation (0-150 range)
+                        - ✅ Categorical synonym merging
+                        - ✅ Domain detection (healthcare, finance, retail)
+                        - ✅ Comprehensive audit logging
+                        - ✅ Schema validation
+                        - ✅ Outlier detection & handling
+                        """)
+                
                 # Show STATUS cleaning demo if relevant
                 if 'case_inconsistencies' in quality_analysis['issues'] and any('status' in col.lower() for col in quality_analysis['issues']['case_inconsistencies'].keys()):
-                    col_demo1, col_demo2 = st.columns(2)
-                    with col_demo1:
-                        if st.button("🎯 Show STATUS Column Cleaning Demo"):
-                            demonstrate_status_cleaning()
-                    with col_demo2:
-                        if st.button("🔧 Clean STATUS Column Now"):
-                            # Apply STATUS cleaning immediately
-                            cleaner = JAXDataCleaner()
-                            status_cols = [col for col in df.columns if 'status' in col.lower()]
-                            if status_cols:
-                                for col in status_cols:
-                                    st.write(f"**Cleaning {col} column...**")
-                                    cleaned_series = cleaner._clean_status_column(df[col])
-                                    
-                                    st.write("**Before cleaning:**")
-                                    st.write(df[col].value_counts(dropna=False))
-                                    
-                                    st.write("**After cleaning:**")
-                                    st.write(cleaned_series.value_counts(dropna=False))
-                                    
-                                    st.success(f"✅ {col} column cleaned! Case inconsistencies resolved.")
+                    if st.button("🔧 Clean STATUS Column Now"):
+                        # Apply STATUS cleaning immediately
+                        cleaner = JAXDataCleaner()
+                        status_cols = [col for col in df.columns if 'status' in col.lower()]
+                        if status_cols:
+                            for col in status_cols:
+                                st.write(f"**Cleaning {col} column...**")
+                                cleaned_series = cleaner._clean_status_column(df[col])
+                                
+                                st.write("**Before cleaning:**")
+                                st.write(df[col].value_counts(dropna=False))
+                                
+                                st.write("**After cleaning:**")
+                                st.write(cleaned_series.value_counts(dropna=False))
+                                
+                                st.success(f"✅ {col} column cleaned! Case inconsistencies resolved.")
             else:
                 st.success("✅ No major data quality issues detected!")
             
@@ -1324,10 +2178,10 @@ def main():
             # Add data exploration section
             create_data_exploration_plots(X_clean, target_col, target_type)
 
-            # Dual-output approach: Raw-but-tidy + ML-ready
+            # Enhanced Download Options with Cleaning Log
             st.subheader("💾 Download Options")
             
-            col_download1, col_download2 = st.columns(2)
+            col_download1, col_download2, col_download3 = st.columns(3)
             
             try:
                 # 1. Raw-but-tidy version (semantic richness preserved)
@@ -1376,9 +2230,102 @@ def main():
                     with st.expander("View Target Encoding"):
                         target_mapping = dict(enumerate(le_target.classes_))
                         st.text(f"Target '{target_col}' encoding: {target_mapping}")
+                
+                # 3. Comprehensive Cleaning Log & Mappings
+                with col_download3:
+                    st.markdown("**📋 Cleaning Log & Mappings**")
+                    st.markdown("✅ Complete audit trail  \n✅ All transformations  \n✅ Human-readable mappings")
+                    
+                    # Get comprehensive cleaning log
+                    cleaning_log = cleaner.get_cleaning_log()
+                    cleaning_log_json = cleaner.export_cleaning_log('json')
+                    cleaning_log_summary = cleaner.export_cleaning_log('summary')
+                    
+                    # Get interpretable mappings
+                    mappings_markdown = cleaner.export_interpretable_mappings('markdown')
+                    mappings_csv = cleaner.export_interpretable_mappings('csv')
+                    mappings_json = cleaner.export_interpretable_mappings('json')
+                    
+                    st.download_button(
+                        label="📥 Download Full Cleaning Log (JSON)",
+                        data=cleaning_log_json,
+                        file_name="cleaning_log_full.json",
+                        mime="application/json"
+                    )
+                    
+                    st.download_button(
+                        label="📥 Download Cleaning Summary (JSON)",
+                        data=cleaning_log_summary,
+                        file_name="cleaning_log_summary.json",
+                        mime="application/json"
+                    )
+                    
+                    st.download_button(
+                        label="📥 Download Mappings (Markdown)",
+                        data=mappings_markdown,
+                        file_name="categorical_mappings.md",
+                        mime="text/markdown"
+                    )
+                    
+                    st.download_button(
+                        label="📥 Download Mappings (CSV)",
+                        data=mappings_csv,
+                        file_name="categorical_mappings.csv",
+                        mime="text/csv"
+                    )
+                    
+                    # Display cleaning log summary in UI
+                    with st.expander("View Cleaning Log Summary"):
+                        st.json(cleaning_log_summary)
                         
             except Exception as e:
                 st.error(f"Error preparing downloads: {e}")
+            
+            # Display comprehensive cleaning log in UI
+            st.subheader("📋 Comprehensive Cleaning Log")
+            
+            with st.expander("View Complete Cleaning Log", expanded=False):
+                if hasattr(cleaner, 'cleaning_log') and cleaner.cleaning_log:
+                    # Display key statistics
+                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                    
+                    with col_stat1:
+                        st.metric("Total Steps", len(cleaner.cleaning_log.get('steps', [])))
+                    with col_stat2:
+                        st.metric("Warnings", len(cleaner.cleaning_log.get('warnings', [])))
+                    with col_stat3:
+                        st.metric("Errors", len(cleaner.cleaning_log.get('errors', [])))
+                    with col_stat4:
+                        st.metric("Transformations", len(cleaner.cleaning_log.get('transformations', {})))
+                    
+                    # Display warnings and errors
+                    if cleaner.cleaning_log.get('warnings'):
+                        st.subheader("⚠️ Warnings")
+                        for warning in cleaner.cleaning_log['warnings']:
+                            st.warning(warning)
+                    
+                    if cleaner.cleaning_log.get('errors'):
+                        st.subheader("❌ Errors")
+                        for error in cleaner.cleaning_log['errors']:
+                            st.error(error)
+                    
+                    # Display transformation steps
+                    st.subheader("🔄 Transformation Steps")
+                    for i, step in enumerate(cleaner.cleaning_log.get('steps', []), 1):
+                        with st.expander(f"Step {i}: {step.get('operation', 'Unknown')} - {step.get('column', 'Unknown')}"):
+                            st.json(step)
+                    
+                    # Display categorical mappings
+                    if cleaner.cleaning_log.get('transformations'):
+                        st.subheader("🏷️ Categorical Mappings")
+                        for col, mapping_info in cleaner.cleaning_log['transformations'].items():
+                            if mapping_info.get('type') == 'categorical_encoding':
+                                with st.expander(f"Column: {col}"):
+                                    st.write("**Encoding Mapping:**")
+                                    st.json(mapping_info['mapping'])
+                                    st.write(f"**Original Unique Values:** {mapping_info.get('original_unique', 'N/A')}")
+                else:
+                    st.info("No detailed cleaning log available. This may be due to using the legacy cleaning method.")
             
             st.markdown("---")
 
@@ -1620,10 +2567,8 @@ def main():
         "This app is powered by Streamlit, JAX, and Scikit-learn. "
         "It provides an end-to-end solution for data cleaning, modeling, and evaluation."
     )
-    st.sidebar.subheader("GitHub Repository")
-    st.sidebar.markdown(
-        "[View Source Code](https://github.com/yourusername/your-repo)"
-    )
+    st.sidebar.subheader("Source Code")
+    st.sidebar.info("This application is available as open source code.")
 
 if __name__ == "__main__":
     # Ensure all helper/webscraping functions are defined or pasted back in before running
