@@ -1664,7 +1664,7 @@ def is_allowed_by_robots(url):
         rp = RobotsParser()
         rp.set_url(robots_url)
         rp.read()
-        return rp.can_fetch("DataAnalyzerBot/1.0 (contact@example.com)", url)
+        return rp.can_fetch("DataAnalyzerBot/1.0", url)
     except Exception:
         return True
 
@@ -1728,7 +1728,7 @@ def web_scraping_ui():
             async with httpx.AsyncClient(timeout=timeout) as client:
                 tasks = []
                 for url in urls:
-                    tasks.append(client.get(url, headers={"User-Agent": "DataAnalyzerBot/1.0 (contact@example.com)"}))
+                    tasks.append(client.get(url, headers={"User-Agent": "DataAnalyzerBot/1.0"}))
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 return responses
         
