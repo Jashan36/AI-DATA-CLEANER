@@ -1,0 +1,6 @@
+id,name,email,age,status
+ID001,John Doe,john@email.com,25,Delivered
+ID002,Jane Smith,jane@email.com,30,DELIVERED
+ID003,Bob Johnson,bob@company.org,45,delivered
+ID004,Alice Brown,alice@test.net,60,Completed
+ID005,Charlie Wilson,charlie@example.com,35,Shipped

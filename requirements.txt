@@ -1,21 +1,41 @@
+# Core dependencies
 streamlit
-jax
-jaxlib
-plotly
-numpy
-scikit-learn
+polars
 pandas
-requests
+numpy
+plotly
+pyarrow
+
+# Data cleaning and quality
+great-expectations
+rapidfuzz
+phonenumbers
+email-validator
+python-dateutil
+
+# Web scraping
+aiohttp
+httpx
 beautifulsoup4
 lxml
-spacy
+readability-lxml
 robotexclusionrulesparser
 nest_asyncio
-httpx
-transformers
+
+# NLP and text processing
+spacy
 textblob
-# Optional: Only if you use polars, gradio, matplotlib, seaborn
-polars
-gradio
+
+# API and CLI
+fastapi
+uvicorn
+python-multipart
+
+# Optional: JAX for numeric operations
+jax
+jaxlib
+
+# Optional: Additional utilities
+psutil
 matplotlib
 seaborn
