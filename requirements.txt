@@ -3,6 +3,7 @@ streamlit
 polars
 pandas
 numpy
+sklearn
 plotly
 pyarrow
 pytest
