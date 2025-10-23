@@ -5,6 +5,7 @@ pandas
 numpy
 plotly
 pyarrow
+pytest
 
 # Data cleaning and quality
 great-expectations
