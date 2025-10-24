@@ -7,6 +7,11 @@ scikit-learn
 plotly
 pyarrow
 pytest
+anyio
+pytest-asyncio
+pytest-tornasync
+pytest-trio
+pytest-twisted
 
 # Data cleaning and quality
 great-expectations
