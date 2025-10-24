@@ -32,4 +32,3 @@ if __name__ == "__main__":
     patch_quality_gates()
     patch_web_scraper()
     print("✅ Emergency patches applied. Run tests again.")
-
