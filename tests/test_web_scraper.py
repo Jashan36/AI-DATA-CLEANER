@@ -166,6 +166,7 @@ class TestWebScraper(unittest.TestCase):
         self.assertLessEqual(len(summary.split()), 25)  # Should be concise
         self.assertIn('...', summary)  # Should indicate truncation
     
+    @pytest.mark.asyncio
     @patch('core.web_scraper.httpx.AsyncClient')
     async def test_scrape_single_url_success(self, mock_client):
         """Test successful single URL scraping."""
@@ -186,6 +187,7 @@ class TestWebScraper(unittest.TestCase):
         self.assertIsInstance(result.raw_text, str)
         self.assertIsNotNone(result.response_time)
     
+    @pytest.mark.asyncio
     @patch('core.web_scraper.httpx.AsyncClient')
     async def test_scrape_single_url_failure(self, mock_client):
         """Test failed single URL scraping."""
@@ -201,6 +203,7 @@ class TestWebScraper(unittest.TestCase):
         self.assertEqual(len(result.structured_cards), 0)
         self.assertEqual(result.raw_text, '')
     
+    @pytest.mark.asyncio
     @patch('core.web_scraper.httpx.AsyncClient')
     async def test_scrape_urls_multiple(self, mock_client):
         """Test scraping multiple URLs."""
@@ -244,11 +247,12 @@ class TestWebScraper(unittest.TestCase):
         ]
         
         import tempfile
+        import os
+        
         with tempfile.TemporaryDirectory() as temp_dir:
             self.scraper.export_results(results, temp_dir)
             
             # Check that files were created
-            import os
             files = os.listdir(temp_dir)
             self.assertIn('scrape_summary.md', files)
             self.assertIn('scrape_cards.json', files)
