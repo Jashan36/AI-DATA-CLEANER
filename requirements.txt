@@ -5,6 +5,7 @@ pandas
 numpy
 scikit-learn
 plotly
+twisted
 pyarrow
 pytest
 anyio
